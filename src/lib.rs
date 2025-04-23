@@ -26,6 +26,7 @@
 //! use std::sync::mpsc;
 //! use std::thread;
 //! use std::time::Duration;
+//! use std::pin::Pin;
 //!
 //! type Request = String;
 //!
@@ -46,7 +47,9 @@
 //!
 //! // If compiled with `std` the library can receive messages with timeout on regular threads
 //! #[cfg(feature = "std")] {
-//!     let (response_sender, response_receiver) = oneshot::channel();
+//!     let mut chan = oneshot::channel();
+//!     let chan = Pin::new(&mut chan);
+//!     let (response_sender, response_receiver) = chan.pair().unwrap();
 //!     let request = Request::from("data from sync thread");
 //!
 //!     processor.send((request, response_sender)).expect("Processor down");
@@ -62,7 +65,9 @@
 //!     tokio::runtime::Runtime::new()
 //!         .unwrap()
 //!         .block_on(async move {
-//!             let (response_sender, response_receiver) = oneshot::channel();
+//!             let mut chan = oneshot::channel();
+//!             let chan = Pin::new(&mut chan);
+//!             let (response_sender, response_receiver) = chan.pair().unwrap();
 //!             let request = Request::from("data from sync thread");
 //!
 //!             processor.send((request, response_sender)).expect("Processor down");
@@ -179,6 +184,7 @@ mod thread {
 mod loombox;
 #[cfg(not(oneshot_loom))]
 use alloc::boxed::Box;
+use std::sync::atomic::AtomicBool;
 #[cfg(oneshot_loom)]
 use loombox::Box;
 
@@ -188,19 +194,8 @@ mod errors;
 pub use errors::*;
 
 /// Creates a new oneshot channel and returns the two endpoints, [`Sender`] and [`Receiver`].
-pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-    // Allocate the channel on the heap and get the pointer.
-    // The last endpoint of the channel to be alive is responsible for freeing the channel
-    // and dropping any object that might have been written to it.
-    let channel_ptr = NonNull::from(Box::leak(Box::new(Channel::new())));
-
-    (
-        Sender {
-            channel_ptr,
-            _invariant: PhantomData,
-        },
-        Receiver { channel_ptr },
-    )
+pub fn channel<T>() -> Channel<T> {
+    Channel::new()
 }
 
 /// Sending end of a oneshot channel.
@@ -422,11 +417,6 @@ impl<T> Drop for Sender<T> {
             }
             // The receiver was already dropped. We are responsible for freeing the channel.
             DISCONNECTED => {
-                // SAFETY: when the receiver switches the state to DISCONNECTED they have received
-                // the message or will no longer be trying to receive the message, and have
-                // observed that the sender is still alive, meaning that we're responsible for
-                // freeing the channel allocation.
-                unsafe { dealloc(self.channel_ptr) };
             }
             _ => unreachable!(),
         }
@@ -542,17 +532,10 @@ impl<T> Receiver<T> {
                                 // SAFETY: we are in the message state so the message is valid
                                 let message = unsafe { channel.take_message() };
 
-                                // SAFETY: the Sender delegates the responsibility of deallocating
-                                // the channel to us upon sending the message
-                                unsafe { dealloc(channel_ptr) };
-
                                 break Ok(message);
                             }
                             // The sender was dropped while we were parked.
                             DISCONNECTED => {
-                                // SAFETY: the Sender doesn't deallocate the channel allocation in
-                                // its drop implementation if we're receiving
-                                unsafe { dealloc(channel_ptr) };
 
                                 break Err(RecvError);
                             }
@@ -576,9 +559,6 @@ impl<T> Receiver<T> {
                         // SAFETY: we are in the message state so the message is valid
                         let message = unsafe { channel.take_message() };
 
-                        // SAFETY: the Sender delegates the responsibility of deallocating the
-                        // channel to us upon sending the message
-                        unsafe { dealloc(channel_ptr) };
 
                         Ok(message)
                     }
@@ -589,9 +569,6 @@ impl<T> Receiver<T> {
                         // need to drop it.
                         unsafe { channel.drop_waker() };
 
-                        // SAFETY: the sender does not deallocate the channel if it switches from
-                        // empty to disconnected so we need to free the allocation
-                        unsafe { dealloc(channel_ptr) };
 
                         Err(RecvError)
                     }
@@ -603,17 +580,10 @@ impl<T> Receiver<T> {
                 // SAFETY: we are in the message state so the message is valid
                 let message = unsafe { channel.take_message() };
 
-                // SAFETY: we are already in the message state so the sender has been forgotten
-                // and it's our job to clean up resources
-                unsafe { dealloc(channel_ptr) };
-
                 Ok(message)
             }
             // The sender was dropped before sending anything, or we already received the message.
             DISCONNECTED => {
-                // SAFETY: the sender does not deallocate the channel if it switches from empty to
-                // disconnected so we need to free the allocation
-                unsafe { dealloc(channel_ptr) };
 
                 Err(RecvError)
             }
@@ -1052,9 +1022,6 @@ impl<T> Drop for Receiver<T> {
             MESSAGE => {
                 // SAFETY: we are in the message state so the message is initialized
                 unsafe { channel.drop_message() };
-
-                // SAFETY: see safety comment at top of function
-                unsafe { dealloc(self.channel_ptr) };
             }
             // The receiver has been polled.
             #[cfg(feature = "async")]
@@ -1064,8 +1031,6 @@ impl<T> Drop for Receiver<T> {
             }
             // The sender was already dropped. We are responsible for freeing the channel.
             DISCONNECTED => {
-                // SAFETY: see safety comment at top of function
-                unsafe { dealloc(self.channel_ptr) };
             }
             // This receiver was previously polled, so the channel was in the RECEIVING state.
             // But the sender has observed the RECEIVING state and is currently reading the waker
@@ -1087,8 +1052,6 @@ impl<T> Drop for Receiver<T> {
                         _ => unreachable!(),
                     }
                 }
-                // SAFETY: see safety comment at top of function
-                unsafe { dealloc(self.channel_ptr) };
             }
             _ => unreachable!(),
         }
@@ -1123,7 +1086,8 @@ use states::*;
 /// * The message in the channel. This memory is uninitialized until the message is sent.
 /// * The waker instance for the thread or task that is currently receiving on this channel.
 ///   This memory is uninitialized until the receiver starts receiving.
-struct Channel<T> {
+pub struct Channel<T> {
+    paired: AtomicBool,
     state: AtomicU8,
     message: UnsafeCell<MaybeUninit<T>>,
     waker: UnsafeCell<MaybeUninit<ReceiverWaker>>,
@@ -1132,10 +1096,35 @@ struct Channel<T> {
 impl<T> Channel<T> {
     pub fn new() -> Self {
         Self {
+            paired: AtomicBool::new(false),
             state: AtomicU8::new(EMPTY),
             message: UnsafeCell::new(MaybeUninit::uninit()),
             waker: UnsafeCell::new(MaybeUninit::uninit()),
         }
+    }
+
+
+    /// Create `Sender` `Receiver` pair
+    /// None if a pair is already created
+    pub fn pair(self: Pin<&mut Self>) -> Option<(Sender<T>, Receiver<T>)> {
+        if self.paired.load(Acquire) {
+            return None;
+        }
+
+        match self.paired.compare_exchange(false, true, Acquire, Relaxed) {
+            Err(_) => return None,
+            _ => {}
+        }
+
+        Some((
+            Sender {
+                channel_ptr: NonNull::from(&*self),
+                _invariant: PhantomData,
+            },
+            Receiver {
+                channel_ptr: NonNull::from(&*self),
+            }
+        ))
     }
 
     #[inline(always)]
@@ -1337,7 +1326,3 @@ fn receiver_waker_size() {
 const RECEIVER_USED_SYNC_AND_ASYNC_ERROR: &str =
     "Invalid to call a blocking receive method on oneshot::Receiver after it has been polled";
 
-#[inline]
-pub(crate) unsafe fn dealloc<T>(channel: NonNull<Channel<T>>) {
-    drop(Box::from_raw(channel.as_ptr()))
-}

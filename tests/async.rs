@@ -2,41 +2,52 @@
 
 use core::mem;
 use core::time::Duration;
+use std::pin::Pin;
 
 mod helpers;
 use helpers::DropCounter;
 
 #[tokio::test]
 async fn send_before_await_tokio() {
-    let (sender, receiver) = oneshot::channel();
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     assert!(sender.send(19i128).is_ok());
     assert_eq!(receiver.await, Ok(19i128));
 }
 
 #[async_std::test]
 async fn send_before_await_async_std() {
-    let (sender, receiver) = oneshot::channel();
+    let mut chan = oneshot::channel::<i128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     assert!(sender.send(19i128).is_ok());
     assert_eq!(receiver.await, Ok(19i128));
 }
 
 #[tokio::test]
 async fn await_with_dropped_sender_tokio() {
-    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     mem::drop(sender);
     receiver.await.unwrap_err();
 }
 
 #[async_std::test]
 async fn await_with_dropped_sender_async_std() {
-    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     mem::drop(sender);
     receiver.await.unwrap_err();
 }
 
 #[tokio::test]
 async fn await_before_send_tokio() {
-    let (sender, receiver) = oneshot::channel();
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let (message, counter) = DropCounter::new(79u128);
     let t = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -52,7 +63,9 @@ async fn await_before_send_tokio() {
 
 #[async_std::test]
 async fn await_before_send_async_std() {
-    let (sender, receiver) = oneshot::channel();
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let (message, counter) = DropCounter::new(79u128);
     let t = async_std::task::spawn(async move {
         async_std::task::sleep(Duration::from_millis(10)).await;
@@ -68,7 +81,9 @@ async fn await_before_send_async_std() {
 
 #[tokio::test]
 async fn await_before_send_then_drop_sender_tokio() {
-    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let t = tokio::spawn(async {
         tokio::time::sleep(Duration::from_millis(10)).await;
         mem::drop(sender);
@@ -79,7 +94,9 @@ async fn await_before_send_then_drop_sender_tokio() {
 
 #[async_std::test]
 async fn await_before_send_then_drop_sender_async_std() {
-    let (sender, receiver) = oneshot::channel::<u128>();
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let t = async_std::task::spawn(async {
         async_std::task::sleep(Duration::from_millis(10)).await;
         mem::drop(sender);
@@ -107,7 +124,9 @@ async fn poll_future_and_then_try_recv() {
         }
     }
 
-    let (sender, receiver) = oneshot::channel();
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let t = tokio::spawn(async {
         tokio::time::sleep(Duration::from_millis(20)).await;
         mem::drop(sender);
@@ -118,7 +137,9 @@ async fn poll_future_and_then_try_recv() {
 
 #[tokio::test]
 async fn poll_receiver_then_drop_it() {
-    let (sender, receiver) = oneshot::channel::<()>();
+    let mut chan = oneshot::channel::<()>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     // This will poll the receiver and then give up after 100 ms.
     tokio::time::timeout(Duration::from_millis(100), receiver)
         .await

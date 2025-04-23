@@ -1,10 +1,13 @@
 #![cfg(not(oneshot_loom))]
 
+use std::pin::Pin;
 use oneshot::{channel, Receiver, Sender};
 
 #[test]
 fn test_raw_sender() {
-    let (sender, receiver) = channel::<u32>();
+    let mut chan = oneshot::channel::<u32>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let raw = sender.into_raw();
     let recreated = unsafe { Sender::<u32>::from_raw(raw) };
     recreated
@@ -15,7 +18,9 @@ fn test_raw_sender() {
 
 #[test]
 fn test_raw_receiver() {
-    let (sender, receiver) = channel::<u32>();
+    let mut chan = channel::<u32>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let raw = receiver.into_raw();
     sender.send(100).unwrap();
     let recreated = unsafe { Receiver::<u32>::from_raw(raw) };
@@ -29,7 +34,9 @@ fn test_raw_receiver() {
 
 #[test]
 fn test_raw_sender_and_receiver() {
-    let (sender, receiver) = channel::<u32>();
+    let mut chan = channel::<u32>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     let raw_receiver = receiver.into_raw();
     let raw_sender = sender.into_raw();
 

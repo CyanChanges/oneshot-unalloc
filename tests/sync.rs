@@ -1,4 +1,5 @@
 use core::mem;
+use std::pin::Pin;
 use oneshot::TryRecvError;
 
 #[cfg(feature = "std")]
@@ -25,7 +26,9 @@ use helpers::{maybe_loom_model, DropCounter};
 #[test]
 fn send_before_try_recv() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        let mut chan = oneshot::channel::<i128>();
+        let chan = Pin::new(&mut chan);
+        let (sender, receiver) = chan.pair().unwrap();
         assert!(!receiver.has_message());
         assert!(sender.send(19i128).is_ok());
 
@@ -45,17 +48,29 @@ fn send_before_try_recv() {
 #[test]
 fn send_before_recv() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<()>();
+        let mut chan = oneshot::channel::<()>();
+        let chan = Pin::new(&mut chan);
+        let (sender, receiver) = chan.pair().unwrap();
+        
+    let mut chan = oneshot::channel::<()>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(()).is_ok());
         assert_eq!(receiver.recv(), Ok(()));
     });
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u8>();
+        
+    let mut chan = oneshot::channel::<u8>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(19).is_ok());
         assert_eq!(receiver.recv(), Ok(19));
     });
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u64>();
+        
+    let mut chan = oneshot::channel::<u64>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(21).is_ok());
         assert_eq!(receiver.recv(), Ok(21));
     });
@@ -64,7 +79,10 @@ fn send_before_recv() {
     // result in "signal: 10, SIGBUS: access to undefined memory"
     #[cfg(not(oneshot_loom))]
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<[u8; 4096]>();
+        
+    let mut chan = oneshot::channel::<[u8; 4096]>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send([0b10101010; 4096]).is_ok());
         assert!(receiver.recv().unwrap()[..] == [0b10101010; 4096][..]);
     });
@@ -74,7 +92,10 @@ fn send_before_recv() {
 #[test]
 fn send_before_recv_ref() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(19i128).is_ok());
 
         assert_eq!(receiver.recv_ref(), Ok(19i128));
@@ -88,7 +109,10 @@ fn send_before_recv_ref() {
 #[test]
 fn send_before_recv_timeout() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(19i128).is_ok());
 
         let start = Instant::now();
@@ -105,7 +129,10 @@ fn send_before_recv_timeout() {
 #[test]
 fn send_then_drop_receiver() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(sender.send(19i128).is_ok());
         mem::drop(receiver);
     })
@@ -114,7 +141,10 @@ fn send_then_drop_receiver() {
 #[test]
 fn send_with_dropped_receiver() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         mem::drop(receiver);
         let send_error = sender.send(5u128).unwrap_err();
         assert_eq!(*send_error.as_inner(), 5);
@@ -125,7 +155,10 @@ fn send_with_dropped_receiver() {
 #[test]
 fn try_recv_with_dropped_sender() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         mem::drop(sender);
         assert!(!receiver.has_message());
         receiver.try_recv().unwrap_err();
@@ -136,7 +169,10 @@ fn try_recv_with_dropped_sender() {
 #[test]
 fn recv_with_dropped_sender() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         mem::drop(sender);
         receiver.recv().unwrap_err();
     })
@@ -146,7 +182,10 @@ fn recv_with_dropped_sender() {
 #[test]
 fn recv_before_send() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let t = thread::spawn(move || {
             thread::sleep(Duration::from_millis(2));
             sender.send(9u128).unwrap();
@@ -160,7 +199,10 @@ fn recv_before_send() {
 #[test]
 fn recv_timeout_before_send() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let t = thread::spawn(move || {
             thread::sleep(Duration::from_millis(2));
             sender.send(9u128).unwrap();
@@ -174,7 +216,10 @@ fn recv_timeout_before_send() {
 #[test]
 fn recv_before_send_then_drop_sender() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let t = thread::spawn(move || {
             thread::sleep(Duration::from_millis(10));
             mem::drop(sender);
@@ -188,7 +233,10 @@ fn recv_before_send_then_drop_sender() {
 #[test]
 fn recv_timeout_before_send_then_drop_sender() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let t = thread::spawn(move || {
             thread::sleep(Duration::from_millis(10));
             mem::drop(sender);
@@ -201,7 +249,10 @@ fn recv_timeout_before_send_then_drop_sender() {
 #[test]
 fn try_recv() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
         mem::drop(sender)
     })
@@ -211,7 +262,10 @@ fn try_recv() {
 #[test]
 fn try_recv_then_drop_receiver() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let t1 = thread::spawn(move || {
             let _ = sender.send(42);
         });
@@ -231,7 +285,10 @@ fn try_recv_then_drop_receiver() {
 #[test]
 fn recv_deadline_and_timeout_no_time() {
     maybe_loom_model(|| {
-        let (_sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (_sender, receiver) = chan.pair().unwrap();
 
         let start = Instant::now();
         assert_eq!(
@@ -254,7 +311,10 @@ fn recv_deadline_and_timeout_no_time() {
 #[test]
 fn recv_deadline_time_should_elapse() {
     maybe_loom_model(|| {
-        let (_sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (_sender, receiver) = chan.pair().unwrap();
 
         let start = Instant::now();
         #[cfg(not(oneshot_loom))]
@@ -274,7 +334,10 @@ fn recv_deadline_time_should_elapse() {
 #[test]
 fn recv_timeout_time_should_elapse() {
     maybe_loom_model(|| {
-        let (_sender, receiver) = oneshot::channel::<u128>();
+        
+    let mut chan = oneshot::channel::<u128>();
+    let chan = Pin::new(&mut chan);
+    let (_sender, receiver) = chan.pair().unwrap();
 
         let start = Instant::now();
         #[cfg(not(oneshot_loom))]
@@ -299,7 +362,10 @@ fn non_send_type_can_be_used_on_same_thread() {
     #[derive(Debug, Eq, PartialEq)]
     struct NotSend(*mut ());
 
-    let (sender, receiver) = oneshot::channel();
+    
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
     sender.send(NotSend(ptr::null_mut())).unwrap();
     let reply = receiver.try_recv().unwrap();
     assert_eq!(reply, NotSend(ptr::null_mut()));
@@ -308,7 +374,10 @@ fn non_send_type_can_be_used_on_same_thread() {
 #[test]
 fn message_in_channel_dropped_on_receiver_drop() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         let (message, counter) = DropCounter::new(());
         assert_eq!(counter.count(), 0);
         sender.send(message).unwrap();
@@ -321,7 +390,10 @@ fn message_in_channel_dropped_on_receiver_drop() {
 #[test]
 fn send_error_drops_message_correctly() {
     maybe_loom_model(|| {
-        let (sender, _) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, _) = chan.pair().unwrap();
         let (message, counter) = DropCounter::new(());
 
         let send_error = sender.send(message).unwrap_err();
@@ -334,7 +406,10 @@ fn send_error_drops_message_correctly() {
 #[test]
 fn send_error_drops_message_correctly_on_into_inner() {
     maybe_loom_model(|| {
-        let (sender, _) = oneshot::channel();
+        
+    let mut chan = oneshot::channel();
+    let chan = Pin::new(&mut chan);
+    let (sender, _) = chan.pair().unwrap();
         let (message, counter) = DropCounter::new(());
 
         let send_error = sender.send(message).unwrap_err();
@@ -349,7 +424,10 @@ fn send_error_drops_message_correctly_on_into_inner() {
 #[test]
 fn dropping_receiver_disconnects_sender() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<()>();
+        
+    let mut chan = oneshot::channel::<()>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(!sender.is_closed());
         assert!(!receiver.is_closed());
         drop(receiver);
@@ -360,7 +438,10 @@ fn dropping_receiver_disconnects_sender() {
 #[test]
 fn dropping_sender_disconnects_receiver() {
     maybe_loom_model(|| {
-        let (sender, receiver) = oneshot::channel::<()>();
+        
+    let mut chan = oneshot::channel::<()>();
+    let chan = Pin::new(&mut chan);
+    let (sender, receiver) = chan.pair().unwrap();
         assert!(!sender.is_closed());
         assert!(!receiver.is_closed());
         drop(sender);

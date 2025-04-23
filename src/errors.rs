@@ -1,4 +1,4 @@
-use super::{dealloc, Channel};
+use super::Channel;
 use core::fmt;
 use core::mem;
 use core::ptr::NonNull;
@@ -41,9 +41,6 @@ impl<T> SendError<T> {
         // `new`
         let message = unsafe { channel.take_message() };
 
-        // SAFETY: we own the channel
-        unsafe { dealloc(channel_ptr) };
-
         message
     }
 
@@ -60,7 +57,6 @@ impl<T> Drop for SendError<T> {
         // upon construction
         unsafe {
             self.channel_ptr.as_ref().drop_message();
-            dealloc(self.channel_ptr);
         }
     }
 }
