@@ -1,5 +1,5 @@
 [package]
-name = "oneshot"
+name = "oneshot-unalloc"
 version = "0.1.0"
 authors = ["Cyan Changes <contact@cyans.me>", "Linus Färnstrand <faern@faern.net>"]
 license = "MIT OR Apache-2.0"
